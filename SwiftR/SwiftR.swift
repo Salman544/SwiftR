@@ -80,7 +80,7 @@ open class SignalR: NSObject, SwiftRWebDelegate {
     var ready = false
     
     public var signalRVersion: SignalRVersion = .v2_2_2
-    public var useWKWebView = false
+    public var useWKWebView = true
     public var transport: Transport = .auto
     /// load Web resource from the provided url, which will be used as Origin HTTP header
     public var originUrlString: String?
@@ -248,10 +248,10 @@ open class SignalR: NSObject, SwiftRWebDelegate {
                 + "\(jqueryInclude)\(signalRInclude)\(jsInclude)"
                 + "</body></html>"
             
-            webView = SwiftRWebView()
+            //webView = SwiftRWebView()
             #if os(iOS)
-                webView.delegate = self
-                webView.loadHTMLString(html, baseURL: baseHTMLUrl)
+                //webView.uiDelegate = self
+                //webView.loadHTMLString(html, baseURL: baseHTMLUrl)
             #else
                 webView.policyDelegate = self
                 webView.mainFrame.loadHTMLString(html, baseURL: baseHTMLUrl)
@@ -304,21 +304,24 @@ open class SignalR: NSObject, SwiftRWebDelegate {
         runJavaScript("swiftR.connection.stop()")
     }
     
-    func shouldHandleRequest(_ request: URLRequest) -> Bool {
+    func shouldHandleRequest(_ request: URLRequest, completion: @escaping (Bool) -> Void) {
         if request.url!.absoluteString.hasPrefix("swiftr://") {
             let id = (request.url!.absoluteString as NSString).substring(from: 9)
-            let msg = webView.stringByEvaluatingJavaScript(from: "readMessage('\(id)')")!
-            let data = msg.data(using: String.Encoding.utf8, allowLossyConversion: false)!
-            let json = try! JSONSerialization.jsonObject(with: data, options: [])
-            
-            if let m = json as? [String: Any] {
-                processMessage(m)
+            webView.evaluateJavaScript("readMessage('\(id)')") { result, error in
+                guard let msg = result as? String else {
+                    completion(false)
+                    return
+                }
+                let data = msg.data(using: String.Encoding.utf8, allowLossyConversion: false)!
+                let json = try! JSONSerialization.jsonObject(with: data, options: [])
+                if let m = json as? [String: Any] {
+                    self.processMessage(m)
+                }
+                completion(false)
             }
-
-            return false
         }
         
-        return true
+        completion(true)
     }
 
     func processMessage(_ json: [String: Any]) {
@@ -397,8 +400,8 @@ open class SignalR: NSObject, SwiftRWebDelegate {
                 callback?(result)
             })
         } else {
-            let result = webView.stringByEvaluatingJavaScript(from: script)
-            callback?(result as? AnyObject)
+            //let result = webView.stringByEvaluatingJavaScript(from: script)
+            //callback?(result as? AnyObject)
         }
     }
     
@@ -454,9 +457,9 @@ open class SignalR: NSObject, SwiftRWebDelegate {
     // MARK: - Web delegate methods
     
 #if os(iOS)
-    open func webView(_ webView: UIWebView, shouldStartLoadWith request: URLRequest, navigationType: UIWebView.NavigationType) -> Bool {
-        return shouldHandleRequest(request)
-    }
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping ((WKNavigationActionPolicy) -> Void)) {
+       decisionHandler(.allow)
+   }
 #else
     public func webView(_ webView: WebView!, decidePolicyForNavigationAction actionInformation: [AnyHashable : Any]!, request: URLRequest!, frame: WebFrame!, decisionListener listener: WebPolicyDecisionListener!) {
         
@@ -578,8 +581,8 @@ public enum SignalRVersion : CustomStringConvertible {
 }
 
 #if os(iOS)
-    typealias SwiftRWebView = UIWebView
-    public protocol SwiftRWebDelegate: WKNavigationDelegate, WKScriptMessageHandler, UIWebViewDelegate {}
+    typealias SwiftRWebView = WKWebView
+    public protocol SwiftRWebDelegate: WKNavigationDelegate, WKScriptMessageHandler {}
 #else
     typealias SwiftRWebView = WebView
     public protocol SwiftRWebDelegate: WKNavigationDelegate, WKScriptMessageHandler, WebPolicyDelegate {}
